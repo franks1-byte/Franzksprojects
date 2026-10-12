@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Raymarching Worlds</title>
+<style>
+  :root { --cyan:#5ef2ff; --pink:#ff4fd8; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { height:100%; background:#000; overflow:hidden; font-family:"Segoe UI", system-ui, sans-serif; color:#eee; }
+  canvas { position:fixed; inset:0; width:100%; height:100%; display:block; cursor:grab; }
+  canvas:active { cursor:grabbing; }
+  .hud {
+    position:fixed; left:16px; top:16px; padding:14px 16px; border-radius:12px; max-width:calc(100% - 32px);
+    background:#08071acc; border:1px solid #ffffff1f; backdrop-filter:blur(8px); font-size:.8rem; line-height:1.6;
+  }
+  .hud h1 { font-size:1rem; letter-spacing:.2em; font-weight:300; color:var(--cyan); }
+  .scenes { display:flex; gap:6px; margin-top:8px; flex-wrap:wrap; }
+  .scenes button {
+    padding:5px 10px; border-radius:8px; border:1px solid #ffffff33; background:transparent; color:#ddd; cursor:pointer; font:inherit;
+  }
+  .scenes button.active { border-color:var(--pink); color:var(--pink); background:#ff4fd81a; }
+  .fps { position:fixed; right:16px; top:16px; font:12px monospace; color:#888; }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div class="hud">
+  <h1>RAYMARCHING WORLDS</h1>
+  <div>Every pixel is a ray traced through math, with no 3D models.</div>
+  <div>Drag to orbit · Scroll to zoom</div>
+  <div class="scenes" id="scenes">
+    <button data-scene="0" class="active">Mandelbulb</button>
+    <button data-scene="1">Infinite Pillars</button>
+    <button data-scene="2">Liquid Metal</button>
+  </div>
+</div>
+<div class="fps" id="fps"></div>
+
+<script id="frag" type="x-shader/x-fragment">#version 300 es
+precision highp float;
+uniform vec2 uRes;
+uniform float uTime;
+uniform vec2 uOrbit;   // yaw, pitch
+uniform float uDist;
+uniform int uScene;
+out vec4 fragColor;
+
+#define MAX_STEPS 160
+#define MAX_DIST 60.0
+#define EPS 0.0008
+
+// ---------- signed distance functions ----------
+float sdSphere(vec3 p, float r) { return length(p) - r; }
+float sdBox(vec3 p, vec3 b) { vec3 q = abs(p) - b; return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0); }
+float smin(float a, float b, float k) { float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0); return mix(b, a, h) - k * h * (1.0 - h); }
+mat2 rot(float a) { float c = cos(a), s = sin(a); return mat2(c, -s, s, c); }
+
+// Mandelbulb fractal; returns distance, writes an orbit-trap value used for coloring
+float mandelbulb(vec3 p, out float trap) {
+  vec3 z = p;
+  float dr = 1.0, r = 0.0;
+  float power = 8.0 + 2.0 * sin(uTime * 0.25);   // the fractal slowly "breathes"
+  trap = 1e9;
+  for (int i = 0; i < 8; i++) {
+    r = length(z);
+    if (r > 2.0) break;
+    float theta = acos(z.z / r) * power;
+    float phi = atan(z.y, z.x) * power;
+    dr = pow(r, power - 1.0) * power * dr + 1.0;
+    z = pow(r, power) * vec3(sin(theta) * cos(phi), sin(phi) * sin(theta), cos(theta)) + p;
+    trap = min(trap, length(z));
+  }
+  return 0.5 * log(r) * r / dr;
+}
+
+// Scene: returns (distance, material id); material 3+ means fractal with trap in .y fraction
+vec2 map(vec3 p, out float trap) {
+  trap = 0.0;
+  if (uScene == 0) {
+    vec3 q = p;
+    q.xz *= rot(uTime * 0.1);
+    return vec2(mandelbulb(q.xzy, trap), 3.0);
+  }
+  if (uScene == 1) {
+    // domain repetition: one pillar becomes infinitely many
+    vec3 q = p;
+    q.xz = mod(q.xz + 2.0, 4.0) - 2.0;
+    float h = 1.5 + 0.6 * sin(floor((p.x + 2.0) / 4.0) * 1.7 + floor((p.z + 2.0) / 4.0) * 2.3 + uTime);
+    float pillar = sdBox(q - vec3(0, h - 1.0, 0), vec3(0.45, h, 0.45)) - 0.05;
+    float orb = sdSphere(q - vec3(0, 2.0 * h + 0.2 + 0.2 * sin(uTime * 2.0 + p.x), 0), 0.35);
+    float floorD = p.y + 1.0;
+    vec2 res = vec2(floorD, 1.0);
+    if (pillar < res.x) res = vec2(pillar, 2.0);
+    if (orb < res.x) res = vec2(orb, 4.0);
+    return res;
+  }
+  // scene 2: metaballs melting together with smooth-min
+  float d = 1e9;
+  for (int i = 0; i < 6; i++) {
+    float fi = float(i);
+    vec3 c = vec3(sin(uTime * 0.7 + fi * 1.3), cos(uTime * 0.9 + fi * 2.1) * 0.7, sin(uTime * 0.5 + fi * 0.8)) * 1.2;
+    d = smin(d, sdSphere(p - c, 0.45 + 0.1 * sin(fi + uTime)), 0.6);
+  }
+  float floorD = p.y + 1.6;
+  return d < floorD ? vec2(d, 5.0) : vec2(floorD, 1.0);
+}
+
+vec2 mapSimple(vec3 p) { float t; return map(p, t); }
+
+vec3 normalAt(vec3 p) {
+  vec2 e = vec2(EPS * 2.0, 0.0);
+  return normalize(vec3(
+    mapSimple(p + e.xyy).x - mapSimple(p - e.xyy).x,
+    mapSimple(p + e.yxy).x - mapSimple(p - e.yxy).x,
+    mapSimple(p + e.yyx).x - mapSimple(p - e.yyx).x));
+}
+
+// soft shadows: march toward the light and track how close we pass to geometry
+float softShadow(vec3 ro, vec3 rd) {
+  float res = 1.0, t = 0.02;
+  for (int i = 0; i < 48; i++) {
+    float h = mapSimple(ro + rd * t).x;
+    res = min(res, 10.0 * h / t);
+    t += clamp(h, 0.02, 0.4);
+    if (res < 0.001 || t > 12.0) break;
+  }
+  return clamp(res, 0.0, 1.0);
+}
+
+float ambientOcclusion(vec3 p, vec3 n) {
+  float occ = 0.0, w = 1.0;
+  for (int i = 1; i <= 5; i++) {
+    float h = 0.03 * float(i);
+    occ += (h - mapSimple(p + n * h).x) * w;
+    w *= 0.75;
+  }
+  return clamp(1.0 - 4.0 * occ, 0.0, 1.0);
+}
+
+vec3 sky(vec3 rd) {
+  vec3 col = mix(vec3(0.02, 0.01, 0.06), vec3(0.15, 0.05, 0.25), pow(max(rd.y + 0.3, 0.0), 0.6));
+  col += vec3(1.0, 0.35, 0.8) * pow(max(dot(rd, normalize(vec3(0.6, 0.25, -0.8))), 0.0), 40.0) * 0.6;
+  return col;
+}
+
+void main() {
+  vec2 uv = (gl_FragCoord.xy - 0.5 * uRes) / uRes.y;
+
+  // orbit camera
+  vec3 target = uScene == 1 ? vec3(0, 0.5, 0) : vec3(0);
+  vec3 ro = target + uDist * vec3(cos(uOrbit.y) * sin(uOrbit.x), sin(uOrbit.y), cos(uOrbit.y) * cos(uOrbit.x));
+  vec3 fw = normalize(target - ro);
+  vec3 rt = normalize(cross(vec3(0, 1, 0), fw));
+  vec3 up = cross(fw, rt);
+  vec3 rd = normalize(fw * 1.6 + uv.x * rt + uv.y * up);
+
+  // ---------- the raymarch loop ----------
+  float t = 0.0, trap = 0.0;
+  vec2 hit = vec2(-1.0);
+  int steps = 0;
+  for (int i = 0; i < MAX_STEPS; i++) {
+    vec2 h = map(ro + rd * t, trap);
+    if (h.x < EPS * t) { hit = vec2(t, h.y); break; }
+    t += h.x * (uScene == 0 ? 0.8 : 1.0);
+    steps = i;
+    if (t > MAX_DIST) break;
+  }
+
+  vec3 col = sky(rd);
+  vec3 lightDir = normalize(vec3(0.6, 0.8, -0.4));
+
+  if (hit.x > 0.0) {
+    vec3 p = ro + rd * hit.x;
+    vec3 n = normalAt(p);
+    float mat = hit.y;
+
+    vec3 albedo;
+    if (mat < 1.5) {           // floor: checkerboard
+      float c = mod(floor(p.x * 1.0) + floor(p.z * 1.0), 2.0);
+      albedo = mix(vec3(0.06, 0.05, 0.12), vec3(0.12, 0.1, 0.2), c);
+    } else if (mat < 2.5) {    // pillars
+      albedo = vec3(0.35, 0.36, 0.45);
+    } else if (mat < 3.5) {    // fractal: color from the orbit trap
+      albedo = 0.5 + 0.5 * cos(6.2831 * (trap * 0.9 + vec3(0.0, 0.33, 0.67)) + uTime * 0.2);
+      albedo = mix(albedo, vec3(0.37, 0.95, 1.0), 0.25);
+    } else if (mat < 4.5) {    // glowing orbs
+      albedo = vec3(1.0, 0.3, 0.85) * 3.0;
+    } else {                   // liquid metal
+      albedo = vec3(0.6);
+    }
+
+    float diff = max(dot(n, lightDir), 0.0) * softShadow(p + n * 0.01, lightDir);
+    float ao = ambientOcclusion(p, n);
+    vec3 refl = reflect(rd, n);
+    float spec = pow(max(dot(refl, lightDir), 0.0), 32.0);
+    float fres = pow(1.0 - max(dot(n, -rd), 0.0), 4.0);
+
+    col = albedo * (0.18 * ao + 1.1 * diff) + spec * 0.6;
+    if (mat > 4.5) col = mix(col * 0.3, sky(refl) * 1.6 + vec3(0.37, 0.95, 1.0) * fres, 0.75) + spec;  // chrome
+    else col += fres * 0.25 * vec3(0.5, 0.3, 1.0);
+    if (mat > 3.5 && mat < 4.5) col = albedo;  // emissive
+
+    col = mix(col, sky(rd), 1.0 - exp(-0.0025 * hit.x * hit.x));  // distance fog
+  }
+
+  // glow from near-misses (makes the fractal edges shimmer)
+  col += vec3(0.37, 0.6, 1.0) * float(steps) / float(MAX_STEPS) * (uScene == 0 ? 0.35 : 0.08);
+
+  // tone map + gamma + vignette
+  col = col / (1.0 + col);
+  col = pow(col, vec3(0.4545));
+  col *= 1.0 - 0.35 * dot(uv, uv);
+  fragColor = vec4(col, 1.0);
+}
+</script>
+
+<script>
+const canvas = document.getElementById('gl');
+const gl = canvas.getContext('webgl2', { antialias: false });
+if (!gl) {
+  document.body.innerHTML = '<p style="padding:2rem">Your browser does not support WebGL2.</p>';
+  throw new Error('WebGL2 not supported');
+}
+
+const vertSrc = `#version 300 es
+in vec2 pos; void main() { gl_Position = vec4(pos, 0.0, 1.0); }`;
+
+function compile(type, src) {
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+  return s;
+}
+const prog = gl.createProgram();
+gl.attachShader(prog, compile(gl.VERTEX_SHADER, vertSrc));
+gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, document.getElementById('frag').textContent.trim()));
+gl.linkProgram(prog);
+if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+gl.useProgram(prog);
+
+// one big triangle that covers the screen
+const buf = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+const loc = gl.getAttribLocation(prog, 'pos');
+gl.enableVertexAttribArray(loc);
+gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+
+const U = name => gl.getUniformLocation(prog, name);
+const uRes = U('uRes'), uTime = U('uTime'), uOrbit = U('uOrbit'), uDist = U('uDist'), uScene = U('uScene');
+
+// ----- adaptive resolution: drop render scale if the GPU struggles
+let scale = 0.75;
+function resize() {
+  canvas.width = Math.floor(innerWidth * devicePixelRatio * scale);
+  canvas.height = Math.floor(innerHeight * devicePixelRatio * scale);
+  gl.viewport(0, 0, canvas.width, canvas.height);
+}
+addEventListener('resize', resize);
+resize();
+
+// ----- camera controls
+const presets = [ { dist: 3.4, pitch: 0.35 }, { dist: 9, pitch: 0.45 }, { dist: 5, pitch: 0.3 } ];
+let scene = 0, yaw = 0.6, pitch = presets[0].pitch, dist = presets[0].dist;
+let tYaw = yaw, tPitch = pitch, tDist = dist, dragging = false, lx = 0, ly = 0, autoSpin = true;
+
+canvas.addEventListener('pointerdown', e => { dragging = true; autoSpin = false; lx = e.clientX; ly = e.clientY; canvas.setPointerCapture(e.pointerId); });
+canvas.addEventListener('pointerup', () => dragging = false);
+canvas.addEventListener('pointermove', e => {
+  if (!dragging) return;
+  tYaw -= (e.clientX - lx) * 0.006;
+  tPitch = Math.max(-0.2, Math.min(1.4, tPitch + (e.clientY - ly) * 0.006));
+  lx = e.clientX; ly = e.clientY;
+});
+addEventListener('wheel', e => { tDist = Math.max(1.4, Math.min(20, tDist * (e.deltaY > 0 ? 1.08 : 0.93))); }, { passive: true });
+
+document.getElementById('scenes').addEventListener('click', e => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  scene = +btn.dataset.scene;
+  document.querySelectorAll('.scenes button').forEach(b => b.classList.toggle('active', b === btn));
+  tDist = presets[scene].dist; tPitch = presets[scene].pitch; autoSpin = true;
+});
+
+// ----- render loop
+const fpsEl = document.getElementById('fps');
+let last = performance.now(), frames = 0, fpsTimer = 0;
+const start = performance.now();
+function frame(now) {
+  const dt = (now - last) / 1000; last = now;
+  frames++; fpsTimer += dt;
+  if (fpsTimer > 1) {
+    const fps = frames / fpsTimer;
+    fpsEl.textContent = `${fps.toFixed(0)} fps · ${Math.round(scale * 100)}% res`;
+    if (fps < 30 && scale > 0.35) { scale -= 0.1; resize(); }
+    else if (fps > 55 && scale < 1) { scale = Math.min(1, scale + 0.05); resize(); }
+    frames = 0; fpsTimer = 0;
+  }
+  if (autoSpin) tYaw += dt * 0.15;
+  yaw += (tYaw - yaw) * 0.1; pitch += (tPitch - pitch) * 0.1; dist += (tDist - dist) * 0.1;
+
+  gl.uniform2f(uRes, canvas.width, canvas.height);
+  gl.uniform1f(uTime, (now - start) / 1000);
+  gl.uniform2f(uOrbit, yaw, pitch);
+  gl.uniform1f(uDist, dist);
+  gl.uniform1i(uScene, scene);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

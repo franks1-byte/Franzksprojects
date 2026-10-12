@@ -1,0 +1,96 @@
+# ===== FranzLang showcase =====
+
+# Recursion
+fn fib(n) {
+  if n < 2 { return n }
+  return fib(n - 1) + fib(n - 2)
+}
+print("fib(20) =", fib(20))
+
+# Closures: each counter remembers its own count
+fn makeCounter() {
+  let count = 0
+  return fn() {
+    count = count + 1
+    return count
+  }
+}
+let a = makeCounter()
+let b = makeCounter()
+a() a() a()
+print("counter a:", a(), " counter b:", b())
+
+# Higher-order functions
+fn map(list, f) {
+  let out = []
+  let i = 0
+  while i < len(list) {
+    push(out, f(list[i]))
+    i = i + 1
+  }
+  return out
+}
+fn filter(list, keep) {
+  let out = []
+  let i = 0
+  while i < len(list) {
+    if keep(list[i]) { push(out, list[i]) }
+    i = i + 1
+  }
+  return out
+}
+let nums = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+print("squares:", map(nums, fn(x) { return x * x }))
+print("evens:  ", filter(nums, fn(x) { return x % 2 == 0 }))
+
+# Bubble sort with index assignment
+fn sort(list) {
+  let n = len(list)
+  let i = 0
+  while i < n {
+    let j = 0
+    while j < n - i - 1 {
+      if list[j] > list[j + 1] {
+        let tmp = list[j]
+        list[j] = list[j + 1]
+        list[j + 1] = tmp
+      }
+      j = j + 1
+    }
+    i = i + 1
+  }
+  return list
+}
+print("sorted: ", sort([42, 7, 19, 3, 88, 1, 56]))
+
+# FizzBuzz with else-if chains
+let i = 1
+let line = ""
+while i <= 15 {
+  if i % 15 == 0 { line = line + "FizzBuzz " }
+  else if i % 3 == 0 { line = line + "Fizz " }
+  else if i % 5 == 0 { line = line + "Buzz " }
+  else { line = line + str(i) + " " }
+  i = i + 1
+}
+print(line)
+
+# Primes with a sieve
+fn primesUpTo(n) {
+  let isPrime = []
+  let k = 0
+  while k <= n { push(isPrime, true) k = k + 1 }
+  let p = 2
+  while p * p <= n {
+    if isPrime[p] {
+      let m = p * p
+      while m <= n { isPrime[m] = false m = m + p }
+    }
+    p = p + 1
+  }
+  let out = []
+  let q = 2
+  while q <= n { if isPrime[q] { push(out, q) } q = q + 1 }
+  return out
+}
+print("primes: ", primesUpTo(50))
