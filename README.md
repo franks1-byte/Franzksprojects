@@ -7,6 +7,8 @@ A collection of projects across Java, Python, the web, Unity, and Roblox, by **J
 |---|---|---|
 | [python-chess-engine](python-chess-engine) | Python | **Chess engine with AI**: full rules verified by perft, plus alpha-beta search, quiescence, and Zobrist hashing |
 | [java-http-server](java-http-server) | Java | **HTTP server from raw sockets**: thread pool, keep-alive, router, REST API, and a to-do web app |
+| [web-fluid-simulation](web-fluid-simulation) | WebGL2, GLSL | **Navier–Stokes fluid on the GPU**: stir glowing ink in real time, with vorticity and bloom |
+| [python-ray-tracer](python-ray-tracer) | Python, numpy | **Path tracer**: glass, metal, soft shadows, and depth of field from simulated light rays |
 | [java-franzlang-interpreter](java-franzlang-interpreter) | Java 21 | **A programming language from scratch**: lexer, recursive-descent parser, AST, and interpreter with closures |
 | [python-neural-network-from-scratch](python-neural-network-from-scratch) | Python, numpy | **Deep learning with no frameworks**: backprop, Adam, gradient check; 95% on a 5-arm spiral |
 | [python-pathfinding-visualizer](python-pathfinding-visualizer) | Python, pygame | A*, Dijkstra, BFS, and Greedy compared live on mazes with weighted terrain |
