@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Galaxy Explorer</title>
+<style>
+  :root { --cyan:#5ef2ff; --pink:#ff4fd8; --text:#e8e8ff; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { height:100%; background:#030212; color:var(--text); font-family:"Segoe UI", system-ui, sans-serif; overflow:hidden; }
+  canvas { position:fixed; inset:0; display:block; }
+  .intro {
+    position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    text-align:center; pointer-events:none; transition:opacity 1.2s ease;
+  }
+  .intro h1 {
+    font-size:clamp(2.2rem, 7vw, 5.5rem); letter-spacing:.35em; font-weight:200;
+    background:linear-gradient(90deg, var(--cyan), var(--pink)); -webkit-background-clip:text; background-clip:text; color:transparent;
+    animation:rise 2.4s cubic-bezier(.2,.8,.2,1) both;
+  }
+  .intro p { margin-top:1rem; letter-spacing:.3em; font-size:.85rem; opacity:.7; animation:rise 2.4s .6s cubic-bezier(.2,.8,.2,1) both; }
+  .intro.hidden { opacity:0; }
+  @keyframes rise { from { opacity:0; transform:translateY(30px); filter:blur(8px); } to { opacity:1; transform:none; filter:none; } }
+  .panel {
+    position:fixed; left:16px; bottom:16px; padding:14px 16px; border:1px solid #ffffff22; border-radius:12px;
+    background:#0a0820cc; backdrop-filter:blur(8px); font-size:.8rem; line-height:1.6; max-width:calc(100% - 32px);
+  }
+  .panel b { color:var(--cyan); }
+  .panel label { display:flex; gap:8px; align-items:center; margin-top:6px; }
+  .panel input[type=range] { accent-color:var(--pink); width:130px; }
+  .panel button {
+    margin-top:8px; padding:6px 12px; border-radius:8px; border:1px solid var(--cyan); background:transparent;
+    color:var(--cyan); cursor:pointer; font:inherit;
+  }
+  .panel button:hover { background:#5ef2ff22; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="intro" id="intro">
+  <h1>GALAXY</h1>
+  <p>MOVE · CLICK · SCROLL</p>
+</div>
+
+<div class="panel">
+  <div><b>Galaxy Explorer</b> by John Francis</div>
+  <div>Drag to rotate · Scroll to zoom · Click for a supernova</div>
+  <label>Arms <input id="arms" type="range" min="2" max="7" value="4"></label>
+  <label>Spin <input id="spin" type="range" min="0" max="100" value="35"></label>
+  <button id="warp">Hyperspace jump</button>
+</div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H, DPR;
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = canvas.width = innerWidth * DPR;
+  H = canvas.height = innerHeight * DPR;
+}
+addEventListener('resize', resize); resize();
+
+// ---------- Galaxy generation ----------
+const STAR_COUNT = 9000;
+let stars = [];
+function buildGalaxy(arms) {
+  stars = [];
+  for (let i = 0; i < STAR_COUNT; i++) {
+    const arm = i % arms;
+    const dist = Math.pow(Math.random(), 1.6) * 420;
+    const armAngle = (arm / arms) * Math.PI * 2;
+    const twist = dist * 0.012;
+    const spread = (Math.random() - 0.5) * (30 + dist * 0.25);
+    const angle = armAngle + twist + spread / (dist + 40);
+    const t = dist / 420;
+    // color: hot white/yellow core -> cyan -> pink at the edges
+    const hue = t < 0.15 ? 45 : 190 + t * 130;
+    stars.push({
+      a: angle, d: dist,
+      y: (Math.random() - 0.5) * (40 * (1 - t) + 6),
+      size: Math.random() * 1.6 + (t < 0.1 ? 0.8 : 0.2),
+      hue, light: t < 0.15 ? 85 : 60 + Math.random() * 25,
+      twinkle: Math.random() * Math.PI * 2
+    });
+  }
+}
+buildGalaxy(4);
+
+// ---------- Camera / input ----------
+let rotX = 1.05, rotY = 0, targetRotX = 1.05, targetRotY = 0;
+let zoom = 1, targetZoom = 1;
+let dragging = false, lastX = 0, lastY = 0, moved = 0;
+let spin = 0.35, warp = 0;
+
+canvas.addEventListener('pointerdown', e => { dragging = true; moved = 0; lastX = e.clientX; lastY = e.clientY; hideIntro(); });
+addEventListener('pointerup', e => { if (dragging && moved < 5) supernova(e.clientX * DPR, e.clientY * DPR); dragging = false; });
+addEventListener('pointermove', e => {
+  if (!dragging) return;
+  const dx = e.clientX - lastX, dy = e.clientY - lastY;
+  moved += Math.abs(dx) + Math.abs(dy);
+  targetRotY += dx * 0.005;
+  targetRotX = Math.max(0.1, Math.min(1.5, targetRotX + dy * 0.005));
+  lastX = e.clientX; lastY = e.clientY;
+});
+addEventListener('wheel', e => { targetZoom = Math.max(0.4, Math.min(3.5, targetZoom * (e.deltaY > 0 ? 0.92 : 1.08))); hideIntro(); }, { passive:true });
+
+document.getElementById('arms').oninput = e => buildGalaxy(+e.target.value);
+document.getElementById('spin').oninput = e => spin = e.target.value / 100;
+document.getElementById('warp').onclick = () => { warp = 1; hideIntro(); };
+
+const intro = document.getElementById('intro');
+function hideIntro() { intro.classList.add('hidden'); }
+setTimeout(hideIntro, 4500);
+
+// ---------- Supernova effects ----------
+let novas = [];
+function supernova(x, y) {
+  const parts = [];
+  for (let i = 0; i < 140; i++) {
+    const a = Math.random() * Math.PI * 2, s = Math.random() * 6 + 1;
+    parts.push({ x, y, vx: Math.cos(a) * s * DPR, vy: Math.sin(a) * s * DPR, life: 1, hue: Math.random() < .5 ? 190 : 310 });
+  }
+  novas.push({ x, y, r: 0, parts });
+}
+
+// ---------- Render loop ----------
+let time = 0;
+function frame() {
+  time += 0.016;
+  rotX += (targetRotX - rotX) * 0.08;
+  rotY += (targetRotY - rotY) * 0.08;
+  zoom += (targetZoom - zoom) * 0.08;
+  warp *= 0.97;
+
+  // motion-blur fade (stronger trails while warping)
+  ctx.fillStyle = `rgba(3,2,18,${0.35 - warp * 0.3})`;
+  ctx.fillRect(0, 0, W, H);
+
+  const cx = W / 2, cy = H / 2;
+  const scale = Math.min(W, H) / 900 * zoom * (1 + warp * 2.5);
+  const cosX = Math.cos(rotX), sinX = Math.sin(rotX);
+  ctx.globalCompositeOperation = 'lighter';
+
+  // glowing core
+  const core = ctx.createRadialGradient(cx, cy, 0, cx, cy, 140 * scale);
+  core.addColorStop(0, 'rgba(255,240,200,0.55)');
+  core.addColorStop(0.4, 'rgba(255,120,220,0.12)');
+  core.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = core;
+  ctx.fillRect(0, 0, W, H);
+
+  for (const s of stars) {
+    // inner stars orbit faster (differential rotation)
+    const a = s.a + rotY + time * spin * (60 / (s.d + 60));
+    const x = Math.cos(a) * s.d;
+    const z0 = Math.sin(a) * s.d;
+    const y = s.y * cosX - z0 * sinX;
+    const z = s.y * sinX + z0 * cosX;
+    const persp = 600 / (600 + z);
+    const px = cx + x * scale * persp;
+    const py = cy + y * scale * persp;
+    if (px < -10 || px > W + 10 || py < -10 || py > H + 10) continue;
+    const tw = 0.6 + Math.sin(time * 3 + s.twinkle) * 0.4;
+    ctx.fillStyle = `hsla(${s.hue},90%,${s.light}%,${tw})`;
+    const r = s.size * persp * DPR * (1 + warp);
+    ctx.fillRect(px, py, r, r);
+  }
+
+  // supernovas
+  for (const n of novas) {
+    n.r += 6 * DPR;
+    ctx.strokeStyle = `rgba(255,255,255,${Math.max(0, 1 - n.r / (220 * DPR))})`;
+    ctx.lineWidth = 2 * DPR;
+    ctx.beginPath(); ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2); ctx.stroke();
+    for (const p of n.parts) {
+      p.x += p.vx; p.y += p.vy; p.vx *= 0.97; p.vy *= 0.97; p.life -= 0.012;
+      if (p.life > 0) { ctx.fillStyle = `hsla(${p.hue},100%,70%,${p.life})`; ctx.fillRect(p.x, p.y, 2.5 * DPR, 2.5 * DPR); }
+    }
+  }
+  novas = novas.filter(n => n.parts.some(p => p.life > 0));
+
+  ctx.globalCompositeOperation = 'source-over';
+  requestAnimationFrame(frame);
+}
+frame();
+</script>
+</body>
+</html>

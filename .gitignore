@@ -1,0 +1,20 @@
+# Java
+out/
+*.class
+
+# Python
+__pycache__/
+*.pyc
+
+# Unity
+Library/
+Temp/
+Obj/
+Logs/
+UserSettings/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
