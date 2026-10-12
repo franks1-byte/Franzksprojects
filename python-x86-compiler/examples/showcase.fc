@@ -1,0 +1,72 @@
+// ===== FC showcase: compiled to native x86-64 =====
+global counter = 0;
+global table[16];
+
+fn fib(n) {
+    if (n < 2) return n;
+    return fib(n - 1) + fib(n - 2);
+}
+
+// arrays are passed as pointers
+fn sort(a, n) {
+    for (var i = 1; i < n; i++) {          // insertion sort
+        var key = a[i];
+        var j = i - 1;
+        while (j >= 0 && a[j] > key) { a[j + 1] = a[j]; j--; }
+        a[j + 1] = key;
+    }
+}
+
+fn swap(p, q) { var t = *p; *p = *q; *q = t; }
+
+fn gcd(a, b) { return b == 0 ? a : gcd(b, a % b); }
+
+fn is_prime(n) {
+    if (n < 2) return 0;
+    for (var d = 2; d * d <= n; d++) if (n % d == 0) return 0;
+    return 1;
+}
+
+fn main() {
+    prints("fib(30) = "); print(fib(30));
+
+    var nums[8];
+    nums[0] = 42; nums[1] = 7; nums[2] = 19; nums[3] = -3;
+    nums[4] = 88; nums[5] = 1; nums[6] = 56; nums[7] = 23;
+    sort(nums, 8);
+    prints("sorted: ");
+    for (var i = 0; i < 8; i++) printf("%ld ", nums[i]);
+    prints("\n");
+
+    var x = 5, y = 9;
+    swap(&x, &y);
+    printf("after swap: x=%ld y=%ld\n", x, y);
+
+    printf("gcd(1071, 462) = %ld\n", gcd(1071, 462));
+
+    prints("primes < 60: ");
+    for (var n = 0; n < 60; n++) {
+        if (!is_prime(n)) continue;
+        printf("%ld ", n);
+    }
+    prints("\n");
+
+    for (var k = 0; k < 16; k++) { table[k] = k * k; counter += table[k]; }
+    printf("sum of squares 0..15 = %ld (global)\n", counter);
+
+    // bit tricks and compound assignment
+    var bits = 0, v = 0xF0F0;
+    while (v) { bits += v & 1; v >>= 1; }
+    printf("popcount(0xF0F0) = %ld\n", bits);
+
+    // FizzBuzz with break
+    for (var i = 1; ; i++) {
+        if (i > 15) break;
+        if (i % 15 == 0) prints("FizzBuzz ");
+        else if (i % 3 == 0) prints("Fizz ");
+        else if (i % 5 == 0) prints("Buzz ");
+        else printf("%ld ", i);
+    }
+    prints("\n");
+    return 0;
+}

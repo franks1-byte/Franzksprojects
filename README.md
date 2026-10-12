@@ -2,6 +2,11 @@
 
 A collection of projects across Java, Python, the web, Unity, and Roblox, by **John Francis**.
 
+## 💀 Expert
+| Project | Tech | What it is |
+|---|---|---|
+| [python-x86-compiler](python-x86-compiler) | Python → x86-64 | **A compiler to native machine code**: optimizer, System V ABI, and fuzz-tested against gcc (16,000/16,000 match) |
+
 ## 🔥 Advanced
 | Project | Tech | What it is |
 |---|---|---|
